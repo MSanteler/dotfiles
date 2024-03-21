@@ -6,7 +6,9 @@ alias kbb="kubie ctx && kubie ns"
 # Alias to list all functions using fzf
 alias listfuncs="typeset -f | grep '()' | awk '{print $1}' | fzf"
 
-GLOBALIAS_FILTER_VALUES=(grep ls '*')
+alias staging_diff="git log --pretty=oneline origin/staging..origin/master | cat"
+
+GLOBALIAS_FILTER_VALUES=(restish grep ls '*')
 
 # Standarized $0 handling
 # https://zdharma-continuum.github.io/Zsh-100-Commits-Club/Zsh-Plugin-Standard.html
@@ -574,4 +576,53 @@ aws_sso_login() {
         echo "AWS SSO login failed with exit code $aws_login_exit_status"
         return $aws_login_exit_status
     fi
+}
+
+# Usage:
+# export_and_import_conversation_data "25d74cd0-2d91-4072-87fd-4045b00bdbb8"
+function export_and_import_conversation_data() {
+    local db_host="duploproddb.cz8h7rcmn3cv.us-west-2.rds.amazonaws.com"
+    local db_user="clearstep"
+    local db_name="triagedb"
+    local conversation_uuid="$1"
+
+    # Prompt for the database password
+    read -s -p "Enter password for $db_user at $db_host: " db_pass
+    echo
+
+    # Export and import for 'conversations'
+    PGPASSWORD="$db_pass" psql -h "$db_host" -U "$db_user" -d "$db_name" -c \
+    "COPY (SELECT * FROM conversations WHERE uuid = '$conversation_uuid') TO STDOUT" | \
+    PGPASSWORD="" psql -c "COPY conversations FROM STDIN"
+
+    # Export and import for 'event_log'
+    PGPASSWORD="$db_pass" psql -h "$db_host" -U "$db_user" -d "$db_name" -c \
+    "COPY (SELECT * FROM event_log WHERE type IN ('CLICKED_PARTNER_CARE_OPTION', 'CLICKED_PARTNER_EXTERNAL_LINK', 'PHONE_NUMBER_CLICK') AND convo_uuid='$conversation_uuid') TO STDOUT" | \
+    PGPASSWORD="" psql -c "COPY event_log FROM STDIN"
+
+    # Export and import for 'metrics'
+    PGPASSWORD="$db_pass" psql -h "$db_host" -U "$db_user" -d "$db_name" -c \
+    "COPY (SELECT * FROM metrics WHERE conversation_uuid='$conversation_uuid') TO STDOUT" | \
+    PGPASSWORD="" psql -c "COPY metrics FROM STDIN"
+
+    # Export and import for 'nlp_results'
+    PGPASSWORD="$db_pass" psql -h "$db_host" -U "$db_user" -d "$db_name" -c \
+    "COPY (SELECT * FROM nlp_results WHERE conversation_uuid = '$conversation_uuid') TO STDOUT" | \
+    PGPASSWORD="" psql -c "COPY nlp_results FROM STDIN"
+}
+
+pgcli_connect() {
+    # Get a list of databases, then select one using fzf
+    local db_selection=$(op item list --categories database | fzf --height=20% --layout=reverse --border --prompt='Select a database: ')
+
+    # Extract the UUID from the selection
+    local uuid=$(echo "$db_selection" | awk '{print $1}')
+
+    # Retrieve and parse database details
+    IFS=',' read -r server port database username password <<< $(op item get $uuid --fields server,port,database,username,password)
+
+    # Connect to the database
+    export PGPASSWORD=$password
+    pgcli -h "$server" -p "$port" -U "$username" -d "$database" # Assuming username is the same as database name, adjust if necessary
+    unset PGPASSWORD # Clear the variable afterwards
 }

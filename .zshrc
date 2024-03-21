@@ -127,3 +127,5 @@ compdef kubecolor=kubectl
 
 # Fuzzy finder
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+alias restish="noglob restish"
