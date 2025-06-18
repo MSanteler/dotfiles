@@ -3,6 +3,9 @@ alias kns="kubens"
 alias kb="kubie"
 alias kbb="kubie ctx && kubie ns"
 
+alias c-="code -"
+alias ez="exec zsh"
+
 # Alias to list all functions using fzf
 alias listfuncs="typeset -f | grep '()' | awk '{print $1}' | fzf"
 
@@ -16,7 +19,7 @@ GLOBALIAS_FILTER_VALUES=(restish grep ls '*')
 0="${${(M)0:#/*}:-$PWD/$0}"
 
 precmd() {
-  set_env_based_on_git_remote
+    set_env_based_on_git_remote
 }
 
 function prompt_month_icon() {
@@ -27,14 +30,13 @@ function prompt_month_icon() {
     local -A date_emojis
     date_emojis=(
         01-01 "🎆"      # New Year's Day
-        03-05 "💍"      # Your Wedding Anniversary
+        03-05 "💍"      # My Wedding Anniversary
         07-04 "🇺🇸"      # Independence Day
         10-26 "🎂"      # My Birthday
         10-31 "👻"      # Halloween
         11-11 "🌺"      # Veterans Day
         11-28 "🦃"      # Thanksgiving (this date can vary)
         12-25 "🎄"      # Christmas Day
-        # ... (you can add more special dates and emojis here)
     )
 
     # If today is a special date, display its emoji
@@ -426,15 +428,36 @@ git_commit_last_cmd() {
 }
 
 assume_role() {
+    if [ "$1" = "--help" ]; then
+        echo "Usage: assume_role ROLE_ARN SESSION_NAME"
+        echo "This function assumes an AWS IAM role and exports the temporary credentials."
+        echo ""
+        echo "Arguments:"
+        echo "  ROLE_ARN      The ARN of the role to assume."
+        echo "  SESSION_NAME  The name of the session."
+        return 0
+    fi
+
     local role_arn="$1"
-    
     local session_name="$2"
 
-    local creds="$(aws sts assume-role --role-arn $role_arn --role-session-name $session_name --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)"
+    if [ -z "$role_arn" ] || [ -z "$session_name" ]; then
+        echo "Error: ROLE_ARN and SESSION_NAME are required."
+        echo "Use --help for more information."
+        return 1
+    fi
 
-    export AWS_ACCESS_KEY_ID="$(echo $creds | awk '{print $1}')"
-    export AWS_SECRET_ACCESS_KEY="$(echo $creds | awk '{print $2}')"
-    export AWS_SESSION_TOKEN="$(echo $creds | awk '{print $3}')"
+    local creds
+    creds=$(aws sts assume-role --role-arn "$role_arn" --role-session-name "$session_name" --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
+
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to assume role."
+        return 1
+    fi
+
+    export AWS_ACCESS_KEY_ID=$(echo "$creds" | awk '{print $1}')
+    export AWS_SECRET_ACCESS_KEY=$(echo "$creds" | awk '{print $2}')
+    export AWS_SESSION_TOKEN=$(echo "$creds" | awk '{print $3}')
 
     echo "🔐 AWS credentials set for session $session_name."
 }
@@ -469,7 +492,9 @@ get_k8s_node_info() {
     for node in $(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')
     do
         instance_id=$(kubectl get node "$node" -o jsonpath='{.spec.providerID}' | cut -d'/' -f5)
-        instance_type=$(aws ec2 describe-instances --instance-ids "$instance_id" --query 'Reservations[].Instances[].InstanceType' --output text)
+        instance_info=$(aws ec2 describe-instances --instance-ids "$instance_id" --query 'Reservations[].Instances[].[InstanceType, Placement.AvailabilityZone]' --output text)
+        instance_type=$(echo "$instance_info" | awk '{print $1}')
+        region=$(echo "$instance_info" | awk '{print $2}')
         node_status=$(kubectl get node "$node" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
 
         # Fetching metrics
@@ -482,6 +507,7 @@ get_k8s_node_info() {
             echo "Node: $node"
             echo "  Instance ID: $instance_id"
             echo "  Instance Type: $instance_type"
+            echo "  Region: $region"
             echo "  Status: $node_status"
             echo "  Metrics: Unavailable (Node might be in a NotReady or similar state)"
         else
@@ -490,6 +516,7 @@ get_k8s_node_info() {
             echo "Node: $node"
             echo "  Instance ID: $instance_id"
             echo "  Instance Type: $instance_type"
+            echo "  Region: $region"
             echo "  CPU Usage: $cpu_usage ($cpu_percent)"
             echo "  Memory Usage: $memory_usage ($memory_percent)"
         fi
@@ -516,6 +543,9 @@ aws_sso_login() {
 
     # Map AWS profiles to specific Chrome profiles
     case $aws_profile in
+    clearstep_prod02_admin)
+        chrome_profile="Profile 2"
+        ;;
     clearstep_duplo_admin)
         chrome_profile="Profile 2"
         ;;
@@ -525,7 +555,7 @@ aws_sso_login() {
     clearstep_qadevint_admin | clearstep_qadevint_eng)
         chrome_profile="Profile 2"
         ;;
-    ms-AdministratorAccess-504785860355)
+    ms-AdministratorAccess-504785860355) # My personal cluster
         chrome_profile="Profile 1"
         ;;
     *)
@@ -619,10 +649,10 @@ pgcli_connect() {
     local uuid=$(echo "$db_selection" | awk '{print $1}')
 
     # Retrieve and parse database details
-    IFS=',' read -r server port database username password <<< $(op item get $uuid --fields server,port,database,username,password)
+    IFS=',' read -r server port database username password <<< $(op item get $uuid --fields server,port,database,username,password --reveal)
 
     # Connect to the database
     export PGPASSWORD=$password
     pgcli -h "$server" -p "$port" -U "$username" -d "$database" # Assuming username is the same as database name, adjust if necessary
-    unset PGPASSWORD # Clear the variable afterwards
+    # unset PGPASSWORD # Clear the variable afterwards
 }

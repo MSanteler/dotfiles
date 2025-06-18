@@ -94,7 +94,7 @@ plugins=(
   msanteler
   postgres
   terraform
-  thefuck
+  terragrunt
   vscode
   zsh-autosuggestions
   zsh-syntax-highlighting
@@ -108,7 +108,8 @@ source $ZSH/oh-my-zsh.sh
 if [[ -n $SSH_CONNECTION ]]; then
   export EDITOR='vim'
 else
-  export EDITOR='code --wait'
+  # export EDITOR='code --wait'
+  export EDITOR='cursor --wait'
 fi
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
